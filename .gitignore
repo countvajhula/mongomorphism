@@ -1,0 +1,5 @@
+# python compile output
+*pyc
+# vim noise
+*~
+*.sw?
