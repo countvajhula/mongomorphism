@@ -1,17 +1,19 @@
-from pymongo import MongoClient
 import transaction
 from transaction.interfaces import TransientError
 import logging
 from hashlib import sha256
 import platform
 import datetime
+import mongomorphism
 
 #
 # transaction support stuff
 #
 
 def gen_transaction_id(transaction):
-	""" Generate a globally unique id for a transaction """
+	""" Generate a globally unique id for a transaction
+	TODO: mongo _id is globally unique so can just use that instead
+	"""
 	timestamp = str(datetime.datetime.utcnow()) # particular moment in time
 	local_id = str(id(transaction)) # guaranteed to be unique on this machine (but not all machines concurrently acting) at the present moment
 	host_id = platform.node() # hostname as something 'globally unique'
@@ -24,8 +26,8 @@ def mongoListener_prehook(*args, **kws):
 	participating, add the needed commit hooks to support transactions correctly on those objects
 	"""
 	txn = kws['transaction']
-	mongodms = filter(lambda f: type(f) == MongoDocument, txn._resources)
-	dbs = set(map(lambda f: f.db, mongodms))
+	mongodms = filter(lambda f: hasattr(f, 'mongo_data_manager'), txn._resources)
+	dbs = set(map(lambda f: f.session.db, mongodms))
 	for db in iter(dbs):
 		txn.addBeforeCommitHook(mongoInitTxn_prehook, args=(), kws={'db':db, 'transaction':txn})
 		txn.addAfterCommitHook(mongoConcludeTxn_posthook, args=(), kws={'db':db, 'transaction':txn})
@@ -41,7 +43,7 @@ def mongoInitTxn_prehook(*args, **kws):
 	timestamp = datetime.datetime.utcnow()
 	db.transactions.insert({'tid':ActiveTransaction.transactionId, 'state':'pending', 'date_created':timestamp, 'date_modified':timestamp})
 	# list participating dm's, if not injective: dms->docs then call abort() here
-	mongodms = filter(lambda f: type(f) == MongoDocument, txn._resources)
+	mongodms = filter(lambda f: hasattr(f, 'mongo_data_manager'), txn._resources)
 	txn_docIds = {}
 	for dm in mongodms:
 		if txn_docIds.has_key(dm.docId):
@@ -74,35 +76,27 @@ class MongoSavepoint(object):
 		self.dm.uncommitted = self.saved_committed.copy()
 
 class MongoDocument(object):
+	""" A Mongodb data manager. A MongoDocument represents a document in mongo database,
+	and acts like a regular python dict. By default the document will be transaction-aware,
+	providing "ACID-like" functionality on top of mongodb by interfacing with the
+	python 'transaction' package. Changes will be persisted only if the transaction succeeds.
+	If non-transactional, then save() and delete() methods may be used.
+	"""
+
 	transaction_manager = transaction.manager
-	transactionsInitialized = False
+	mongo_data_manager = True # internal: for transaction hook injection
 
-	@classmethod
-	def initialize(cls):
-		""" This needs to be called once (e.g. at the beginning) for any transaction that will be
-		interacting with mongodb (i.e. if a mongo data manager will be joining the transaction)
+	def __init__(self, session, colname, retrieve=None):
+		""" Note, if using this as a data manager for the python transaction package,
+		by default this will automatically join the current transaction. If you'd like to do
+		it manually, set transactional=False here
 		"""
-		txn = transaction.get()
-		txn.addBeforeCommitHook(mongoListener_prehook, args=(), kws={'transaction':txn})
-		cls.transactionsInitialized = True
-
-	@classmethod
-	def get_mongo_doc(cls, connection, dbname, colname, retrieve=None):
-		""" Create a Mongodb data manager, join the current transaction, and return the dm.
-		Use this convenience method to get a basic transaction-aware mongodb document
-		"""
-		dm = MongoDocument(connection, dbname, colname, retrieve)
-		txn = transaction.get()
-		txn.join(dm)
-		return dm
-
-	def __init__(self, connection, dbname, colname, retrieve=None):
 		try:
-			self.db = connection[dbname]
+			self.session = session
+			self.collection = self.session.db[colname]
 		except:
 			logging.error('Cannot connect to Mongo server!')
 			raise
-		self.collection = self.db[colname]
 
 		committed = {}
 		if retrieve is not None:
@@ -121,6 +115,10 @@ class MongoDocument(object):
 			self.docId = str(self.uncommitted['_id'])
 		else:
 			self.docId = None
+
+		if self.session.transactional:
+			txn = transaction.get()
+			txn.join(self)
 	
 	#
 	# it's going to act like a dictionary so implement basic dictionary methods
@@ -145,24 +143,22 @@ class MongoDocument(object):
 		return self.uncommitted.items()
 
 	def set(self, somedict):
-		self.uncommitted = somedict # if somedict = None, this will delete the doc when the transaction is committed
+		""" Set the document to be equal to the provided dict """
+		self.uncommitted = somedict # if somedict = None, this will delete the doc when the transaction is committed. alternatively, delete() can be called which does the same thing.
 
 	def __repr__(self):
 		return repr(self.uncommitted)
 
+	def __len__(self):
+		return len(self.uncommitted)
+
 	def has_key(self, key):
 		return self.uncommitted.has_key(key)
 
-	#
-	# non-transactional manipulation:
-	#
-
-	def save(self, transaction):
+	def _save(self):
 		# commit new doc (replace existing doc) -- can be called manually outside of transactions
 		if self.uncommitted == None: # document should be deleted
-			if self.committed:
-				self.collection.remove({'_id':self.committed['_id']})
-			self.uncommitted = {}
+			self._delete()
 		else:
 			if self.committed:
 				self.collection.update({'_id':self.committed['_id']}, self.uncommitted)
@@ -171,10 +167,26 @@ class MongoDocument(object):
 
 		self.committed = self.uncommitted.copy()
 
-	def delete(self):
+	def _delete(self):
 		if self.committed:
 			self.collection.remove({'_id':self.committed['_id']})
 		self.uncommitted = {}
+
+	#
+	# non-transactional manipulation:
+	#
+
+	def save(self):
+		if self.session.transactional:
+			logging.warn('save() called on transactional document. ignoring...')
+		else:
+			self._save()
+
+	def delete(self):
+		if self.session.transactional:
+			self.uncommitted = None
+		else:
+			self._delete()
 
 	#
 	# implement transaction protocol methods
@@ -194,11 +206,13 @@ class MongoDocument(object):
 		# check self.committed = current state
 		# or there's a pending txn that's not this one
 		# TODO: make this all atomic?
-		if not MongoDocument.transactionsInitialized:
-			raise Exception('MongoDB transactions not initialized correctly! Be sure to call MongoDocument.initialize() once at the start of each transaction.')
+		if not mongomorphism.transactionsInitialized:
+			raise Exception('MongoDB transactions not initialized correctly! Be sure to call mongomorphism.initialize() once at the start of each transaction.')
+		if not mongomorphism.transactionBegun:
+			raise Exception('Transaction not started correctly -- make sure to call transaction.begin() at the start of each transaction')
 		if self.committed:
 			if not self.committed.has_key('_id'):
-				raise Exception('Committed document does not have an _id field!')
+				raise Exception('Committed document does not have an _id field!') # this should never happen (if it does then we're in trouble - tpc_abort will fail)
 			dbcommitted = self.collection.find_one({'_id':self.committed['_id']})
 			if not dbcommitted:
 				raise TransientError('Document to be updated does not exist in database!')
@@ -214,9 +228,12 @@ class MongoDocument(object):
 		self.uncommitted = self.committed.copy()
 		if self.committed:
 			self.collection.update({'_id':self.committed['_id']}, {'$pull':{'pendingTransactions':ActiveTransaction.transactionId}})
+			dbcommitted = self.collection.find_one({'_id':self.committed['_id']})
+			if dbcommitted.has_key('pendingTransactions') and not dbcommitted['pendingTransactions']:
+				self.collection.update({'_id':self.committed['_id']}, {'$unset':{'pendingTransactions':1}})
 	
 	def tpc_finish(self, transaction):
-		self.save(transaction)
+		self._save()
 
 	def savepoint(self):
 		return MongoSavepoint(self)
@@ -225,12 +242,26 @@ class MongoDocument(object):
 		return 'zzmongodm' + str(id(self)) # prioritize last since it's not "true" transactional
 
 if __name__ == '__main__':
+	from config import *
 	(dbname, dbcol) = ('test_db', 'test_col')
-	connection = MongoClient() # MongoClient('localhost', 27017)
-	MongoDocument.initialize()
-	dm = MongoDocument.get_mongo_doc(connection, dbname, dbcol, retrieve={'blah':'blrh'})
+	session = mongomorphism.initialize(dbname)
+	transaction.begin()
+	try:
+		dm = MongoDocument(session, dbcol, retrieve={'foo':'bar'})
+	except:
+		try:
+			dm = MongoDocument(session, dbcol, retrieve={'foo':'BAR'})
+		except:
+			dm = MongoDocument(session, dbcol)
 	print 'before: ' + str(dm)
-	dm['blah'] = 'blrh'
+	if len(dm) > 0:
+		swapcase = lambda v:v.islower() and v.upper() or v.lower()
+		for k,v in dm.items():
+			if k == '_id': continue
+			dm[k] = swapcase(v)
+	else:
+		dm['foo'] = 'bar'
+		dm['baz'] = 'bobo'
 	transaction.commit()
 	print 'after: ' + str(dm)
 

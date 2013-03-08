@@ -4,12 +4,9 @@ class MongoObject(MongoDocument):
 	__requiredfields__ = ()
 	__collection__ = None
 
-	def __init__(self, connection, dbname, retrieve=None, transactional=True):
-		self.connection = connection
-		super(MongoObject, self).__init__(self.connection, dbname, self.__collection__, retrieve)
-		if transactional:
-			txn = transaction.get()
-			txn.join(self)
+	def __init__(self, session, retrieve=None):
+		self.session = session
+		super(MongoObject, self).__init__(self.session, self.__collection__, retrieve)
 
 	def tpc_vote(self, transaction):
 		# do validation
@@ -18,18 +15,21 @@ class MongoObject(MongoDocument):
 		super(MongoObject, self).tpc_vote(transaction)
 
 if __name__ == '__main__':
-	from pymongo import MongoClient
 	import transaction
+	import mongomorphism
+	from config import *
 
 	class User(MongoObject):
 		__requiredfields__ = ('name', 'age')
-		__collection__ = 'someusers'
+		__collection__ = 'users'
 
-	conn = MongoClient()
-	MongoDocument.initialize()
 	dbname = 'test_db'
-	user = User(conn, dbname, retrieve={'name':'Sid'})
+	session = mongomorphism.initialize(dbname)
+	transaction.begin()
+	try:
+		user = User(session, retrieve={'name':'Sid'})
+	except:
+		user = User(session)
 	user['name'] = 'Sid'
 	user['age'] = 0
 	transaction.commit()
-
