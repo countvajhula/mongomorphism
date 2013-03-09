@@ -1,6 +1,6 @@
 h1. Usage
 
-h3. As a "data manager":http://zodb.readthedocs.org/en/latest/transactions.html#data-managers for the python transaction:http://zodb.readthedocs.org/en/latest/transactions.html package:
+h3. To use as a "data manager":http://zodb.readthedocs.org/en/latest/transactions.html#data-managers for the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package:
 
 bc. import mongomorphism
 from mongomorphism.datamanager import MongoDocument
