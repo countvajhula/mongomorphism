@@ -1,5 +1,7 @@
 h1. Usage
+
 h3. As a "data manager":http://zodb.readthedocs.org/en/latest/transactions.html#data-managers for the python transaction:http://zodb.readthedocs.org/en/latest/transactions.html package:
+
 bc. import mongomorphism
 from mongomorphism.datamanager import MongoDocument
 import transaction
@@ -13,6 +15,7 @@ doc['location'] = 'San Francisco'
 transaction.commit()
 
 h3. To use like an "ORM":
+
 bc. import mongomorphism
 from mongomorphism.orm import MongoObject
 import transaction
