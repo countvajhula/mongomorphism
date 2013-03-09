@@ -5,7 +5,6 @@ h3. As a "data manager":http://zodb.readthedocs.org/en/latest/transactions.html#
 bc. import mongomorphism
 from mongomorphism.datamanager import MongoDocument
 import transaction
-
 dbname = 'test_db'
 session = mongomorphism.initialize(dbname)
 transaction.begin()
@@ -20,12 +19,12 @@ bc. import mongomorphism
 from mongomorphism.orm import MongoObject
 import transaction
 
-# define your models by extending MongoObject
+bc. # define your models by extending MongoObject
 class User(MongoObject):
     __collection__ = 'users'
     __requiredfields__ = ('name','location')
 
-dbname = 'test_db'
+bc. dbname = 'test_db'
 session = mongomorphism.initialize(dbname)
 transaction.begin()
 colname = 'my_collection'
