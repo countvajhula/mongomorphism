@@ -28,7 +28,6 @@ class User(MongoObject):
 bc. dbname = 'test_db'
 session = mongomorphism.initialize(dbname)
 transaction.begin()
-colname = 'my_collection'
 user = User(session, retrieve={'name':'Sid'}) # automatically joins the current transaction
 user['location'] = 'San Francisco'
 transaction.commit()
