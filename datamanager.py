@@ -4,7 +4,7 @@ import logging
 from hashlib import sha256
 import platform
 import datetime
-import mongomorphism
+import __init__ as mongomorphism
 
 #
 # transaction support stuff

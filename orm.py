@@ -16,7 +16,7 @@ class MongoObject(MongoDocument):
 
 if __name__ == '__main__':
 	import transaction
-	import mongomorphism
+	import __init__ as mongomorphism
 	from config import *
 
 	class User(MongoObject):
