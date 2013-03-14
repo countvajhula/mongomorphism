@@ -23,7 +23,6 @@ h3. Non-transactional:
 
 bc. from mongomorphism.datamanager import MongoDocument
 from mongomorphism.config import *
-import transaction
 
 bc. dbname = 'test_db'
 session = Session(dbname, transactional=False)
