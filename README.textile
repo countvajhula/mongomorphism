@@ -1,14 +1,16 @@
+h1. Introduction
+mongomorphism provides an interface to mongodb documents that mimics the standard python dictionary. In this sense it represents an "isomorphism" between mongodb documents and python dictionaries. In addition, mongomorphism also supports ACID-like transactions on top of MongoDB by using the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package, and provides a thin "ORM" layer allowing you to define your models as python objects.
+
 h1. Usage
 
 h3. To use as a "data manager":http://zodb.readthedocs.org/en/latest/transactions.html#data-managers for the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package:
 
-bc. import mongomorphism
-from mongomorphism.datamanager import MongoDocument
+bc. from mongomorphism.datamanager import MongoDocument
+from mongomorphism.config import *
 import transaction
 
 bc. dbname = 'test_db'
-session = mongomorphism.initialize(dbname)
-transaction.begin()
+session = Session(dbname)
 colname = 'my_collection'
 doc = MongoDocument(session, colname, retrieve={'name':'Sid'}) # automatically joins the current transaction
 doc['location'] = 'San Francisco'
@@ -16,8 +18,8 @@ transaction.commit()
 
 h3. To use like an "ORM":
 
-bc. import mongomorphism
-from mongomorphism.orm import MongoObject
+bc. from mongomorphism.orm import MongoObject
+from mongomorphism.config import *
 import transaction
 
 bc. # define your models by extending MongoObject
@@ -26,8 +28,7 @@ class User(MongoObject):
     __requiredfields__ = ('name','location')
 
 bc. dbname = 'test_db'
-session = mongomorphism.initialize(dbname)
-transaction.begin()
+session = Session(dbname)
 user = User(session, retrieve={'name':'Sid'}) # automatically joins the current transaction
 user['location'] = 'San Francisco'
 transaction.commit()
