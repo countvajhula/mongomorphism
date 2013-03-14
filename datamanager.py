@@ -4,7 +4,6 @@ import logging
 from hashlib import sha256
 import platform
 import datetime
-import __init__ as mongomorphism
 
 #
 # transaction support stuff
@@ -25,12 +24,18 @@ def mongoListener_prehook(*args, **kws):
 	""" Examine each transaction before it is committed, and if there are any mongodb data managers
 	participating, add the needed commit hooks to support transactions correctly on those objects
 	"""
-	txn = kws['transaction']
+	txn = transaction.get()
 	mongodms = filter(lambda f: hasattr(f, 'mongo_data_manager'), txn._resources)
 	dbs = set(map(lambda f: f.session.db, mongodms))
 	for db in iter(dbs):
-		txn.addBeforeCommitHook(mongoInitTxn_prehook, args=(), kws={'db':db, 'transaction':txn})
-		txn.addAfterCommitHook(mongoConcludeTxn_posthook, args=(), kws={'db':db, 'transaction':txn})
+		txn.addBeforeCommitHook(mongoInitTxn_prehook, args=(), kws={'db':db})
+		txn.addAfterCommitHook(mongoConcludeTxn_posthook, args=(), kws={'db':db})
+
+def mongoListener_posthook(*args, **kws):
+	""" Mark session transactionInitialized as false
+	"""
+	session = kws['session']
+	session.transactionInitialized = False
 
 def mongoInitTxn_prehook(*args, **kws):
 	""" Called just before transaction is committed -- register transaction in db's 'transaction'
@@ -38,7 +43,7 @@ def mongoInitTxn_prehook(*args, **kws):
 	with one data manager.
 	"""
 	db = kws['db']
-	txn = kws['transaction']
+	txn = transaction.get()
 	ActiveTransaction.transactionId = gen_transaction_id(txn)
 	timestamp = datetime.datetime.utcnow()
 	db.transactions.insert({'tid':ActiveTransaction.transactionId, 'state':'pending', 'date_created':timestamp, 'date_modified':timestamp})
@@ -206,10 +211,8 @@ class MongoDocument(object):
 		# check self.committed = current state
 		# or there's a pending txn that's not this one
 		# TODO: make this all atomic?
-		if not mongomorphism.transactionsInitialized:
-			raise Exception('MongoDB transactions not initialized correctly! Be sure to call mongomorphism.initialize() once at the start of each transaction.')
-		if not mongomorphism.transactionBegun:
-			raise Exception('Transaction not started correctly -- make sure to call transaction.begin() at the start of each transaction')
+		if not self.session.transactionInitialized:
+			raise Exception('MongoDB transactions not initialized correctly! Be sure to create a new session instance or call session.initialize() once at the start of each transaction.')
 		if self.committed:
 			if not self.committed.has_key('_id'):
 				raise Exception('Committed document does not have an _id field!') # this should never happen (if it does then we're in trouble - tpc_abort will fail)
@@ -244,8 +247,7 @@ class MongoDocument(object):
 if __name__ == '__main__':
 	from config import *
 	(dbname, dbcol) = ('test_db', 'test_col')
-	session = mongomorphism.initialize(dbname)
-	transaction.begin()
+	session = Session(dbname)
 	try:
 		dm = MongoDocument(session, dbcol, retrieve={'foo':'bar'})
 	except:
@@ -264,4 +266,3 @@ if __name__ == '__main__':
 		dm['baz'] = 'bobo'
 	transaction.commit()
 	print 'after: ' + str(dm)
-

@@ -16,7 +16,6 @@ class MongoObject(MongoDocument):
 
 if __name__ == '__main__':
 	import transaction
-	import __init__ as mongomorphism
 	from config import *
 
 	class User(MongoObject):
@@ -24,8 +23,7 @@ if __name__ == '__main__':
 		__collection__ = 'users'
 
 	dbname = 'test_db'
-	session = mongomorphism.initialize(dbname)
-	transaction.begin()
+	session = Session(dbname)
 	try:
 		user = User(session, retrieve={'name':'Sid'})
 	except:
