@@ -1,6 +1,6 @@
 h1. Introduction
 
-mongomorphism provides an interface to mongodb documents that mimics the standard python dictionary. In this sense it represents an "isomorphism" between mongodb documents and python dictionaries. In addition, mongomorphism also supports ACID-like transactions on top of MongoDB by using the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package, and provides a thin "ORM" layer allowing you to define your models as python objects.
+mongomorphism provides an interface to MongoDB documents that mimics the standard python dictionary. In this sense it represents an "isomorphism" between MongoDB documents and python dictionaries. In addition, mongomorphism also supports ACID-like transactions on top of MongoDB by using the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package, and provides a thin "ORM" layer allowing you to define your models as python objects.
 
 h1. Usage
 
