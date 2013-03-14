@@ -1,10 +1,12 @@
 h1. Introduction
 
-mongomorphism provides a simple interface to MongoDB that mimics the standard python dictionary. In this sense it represents an "isomorphism" between a MongoDB document and a python dictionary. In addition, mongomorphism also supports ACID-like transactions on top of MongoDB by using the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package, and provides a thin "ORM" layer allowing you to define your models as python objects.
+mongomorphism provides a simple interface to MongoDB that mimics the standard python dictionary (it strives to be an "isomorphism" between a MongoDB document and a python dictionary). In addition, mongomorphism also supports ACID-like transactions on top of MongoDB by using the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package, and provides a thin "ORM" layer allowing you to define your models as python objects.
 
 h1. Usage
 
-h3. To use as a "data manager":http://zodb.readthedocs.org/en/latest/transactions.html#data-managers for the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package:
+h3. Transactional:
+
+Note: This mode operates by implementing a "data manager":http://zodb.readthedocs.org/en/latest/transactions.html#data-managers for the python "transaction":http://zodb.readthedocs.org/en/latest/transactions.html package.
 
 bc. from mongomorphism.datamanager import MongoDocument
 from mongomorphism.config import *
@@ -16,6 +18,19 @@ colname = 'my_collection'
 doc = MongoDocument(session, colname, retrieve={'name':'Sid'}) # automatically joins the current transaction
 doc['location'] = 'San Francisco'
 transaction.commit()
+
+h3. Non-transactional:
+
+bc. from mongomorphism.datamanager import MongoDocument
+from mongomorphism.config import *
+import transaction
+
+bc. dbname = 'test_db'
+session = Session(dbname, transactional=False)
+colname = 'my_collection'
+doc = MongoDocument(session, colname, retrieve={'name':'Sid'})
+doc['location'] = 'San Francisco'
+doc.save()
 
 h3. To use like an "ORM":
 
@@ -33,3 +48,5 @@ session = Session(dbname)
 user = User(session, retrieve={'name':'Sid'}) # automatically joins the current transaction
 user['location'] = 'San Francisco'
 transaction.commit()
+
+You could also use the ORM in non-transactional mode similar to the previous example. That is, create the session with transactional=False, and then call save() when you want to persist the object.
