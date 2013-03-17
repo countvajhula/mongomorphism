@@ -139,10 +139,6 @@ class MongoDocument(object):
 			self.docId = str(self.uncommitted['_id'])
 		else:
 			self.docId = None
-
-		if self.session.transactional:
-			txn = transaction.get()
-			txn.join(self)
 	
 	#
 	# it's going to act like a dictionary so implement basic dictionary methods
@@ -152,6 +148,10 @@ class MongoDocument(object):
 		return self.uncommitted[name]
 
 	def __setitem__(self, name, value):
+		if self.session.transactional:
+			txn = transaction.get()
+			if not self in txn._resources:
+				txn.join(self)
 		if hasattr(value, 'mongo_data_manager'):
 			if value.has_key('_id'):
 				self.uncommitted[name] = DBRef(value.collection.name, value['_id'])
