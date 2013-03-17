@@ -145,6 +145,15 @@ class MongoDocument(object):
 	#
 
 	def __getitem__(self, name):
+		if isinstance(self.uncommitted[name], DBRef):
+			# if referenced doc is part of current transaction return that instance
+			# otherwise create a new MongoDocument instance and return that
+			txn = transaction.get()
+			doc = self.session.db.dereference(self.uncommitted[name])
+			livedocs = filter(lambda f: f.has_key('_id') and f['_id'] == doc['_id'], txn._resources)
+			if livedocs:
+				return livedocs[0]
+			return MongoDocument(self.session, self.collection.name, retrieve=doc)
 		return self.uncommitted[name]
 
 	def __setitem__(self, name, value):
