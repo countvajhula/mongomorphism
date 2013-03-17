@@ -2,8 +2,11 @@ import transaction
 from transaction.interfaces import TransientError
 import logging
 from hashlib import sha256
+from bson.dbref import DBRef
 import platform
 import datetime
+
+logger = logging.getLogger(__name__)
 
 #
 # transaction support stuff
@@ -26,10 +29,10 @@ def mongoListener_prehook(*args, **kws):
 	"""
 	txn = transaction.get()
 	mongodms = filter(lambda f: hasattr(f, 'mongo_data_manager'), txn._resources)
-	dbs = set(map(lambda f: f.session.db, mongodms))
-	for db in iter(dbs):
-		txn.addBeforeCommitHook(mongoInitTxn_prehook, args=(), kws={'db':db})
-		txn.addAfterCommitHook(mongoConcludeTxn_posthook, args=(), kws={'db':db})
+	sessions = set(map(lambda f: f.session, mongodms))
+	for session in iter(sessions):
+		txn.addBeforeCommitHook(mongoInitTxn_prehook, args=(), kws={'session':session})
+		txn.addAfterCommitHook(mongoConcludeTxn_posthook, args=(), kws={'session':session})
 
 def mongoListener_posthook(*args, **kws):
 	""" Mark session transactionInitialized as false
@@ -42,7 +45,7 @@ def mongoInitTxn_prehook(*args, **kws):
 	collection. Ensure that any documents that are part of the current transaction are only associated
 	with one data manager.
 	"""
-	db = kws['db']
+	db = kws['session'].db
 	txn = transaction.get()
 	ActiveTransaction.transactionId = gen_transaction_id(txn)
 	timestamp = datetime.datetime.utcnow()
@@ -51,18 +54,32 @@ def mongoInitTxn_prehook(*args, **kws):
 	mongodms = filter(lambda f: hasattr(f, 'mongo_data_manager'), txn._resources)
 	txn_docIds = {}
 	for dm in mongodms:
-		if txn_docIds.has_key(dm.docId):
-			logging.error('Dooming transaction: duplicate data managers for same document in single transaction!')
-			txn.doom()
-		txn_docIds[dm.docId] = 1
+		if dm.docId:
+			if txn_docIds.has_key(dm.docId):
+				raise Exception('Aborting transaction: duplicate data managers for same document in single transaction!')
+			txn_docIds[dm.docId] = 1
 
 def mongoConcludeTxn_posthook(success, *args, **kws):
-	""" Called immediately after a transaction is committed -- seal transaction state at 'done'/'failed'
-	depending on result.
+	""" Called immediately after a transaction is committed: If transaction succeeded, perform any pending
+	queued operations. Seal transaction state at 'done'/'failed'.
 	"""
-	db = kws['db']
+	session = kws['session']
+	db = session.db
 	timestamp = datetime.datetime.utcnow()
 	if success:
+		# perform queued operations
+		if session.queue:
+			logger.debug('performing queued operations')
+			def updateRefs(doc):
+				col = doc.collection
+				queued = doc.queued
+				for key,doc_ref in queued.items():
+					ref = DBRef(doc_ref.collection.name, doc_ref['_id'])
+					col.update({'_id':doc['_id']}, {'$set':{key:ref}})
+				doc.queued = {}
+			for doc in session.queue:
+				updateRefs(doc)
+			session.queue = []
 		db.transactions.update({'tid':ActiveTransaction.transactionId}, {'$set':{'state':'done', 'date_modified':timestamp}})
 	else:
 		db.transactions.update({'tid':ActiveTransaction.transactionId}, {'$set':{'state':'failed', 'date_modified':timestamp}})
@@ -100,7 +117,7 @@ class MongoDocument(object):
 			self.session = session
 			self.collection = self.session.db[colname]
 		except:
-			logging.error('Cannot connect to Mongo server!')
+			logger.error('Cannot connect to Mongo server!')
 			raise
 
 		committed = {}
@@ -114,6 +131,8 @@ class MongoDocument(object):
 
 		self.committed = committed
 		self.uncommitted = self.committed.copy()
+		self.queued = {}
+
 		# is _id unique across the entire database? If not, then use a sha hash of this concatenated with db id,
 		# to make sure there are no false positives for duplicated dm's for same doc
 		if self.uncommitted.has_key('_id'):
@@ -133,7 +152,22 @@ class MongoDocument(object):
 		return self.uncommitted[name]
 
 	def __setitem__(self, name, value):
-		self.uncommitted[name] = value
+		if hasattr(value, 'mongo_data_manager'):
+			if value.has_key('_id'):
+				self.uncommitted[name] = DBRef(value.collection.name, value['_id'])
+			else:
+				txn = transaction.get()
+				if value in txn._resources:
+					# this document is part of the current transaction and doesn't have a mongo _id yet
+					# queue it and trigger adding the reference at the end of the transaction
+					self.queued[name] = value
+				else:
+					# this document is not part of the current transaction, so treat it as a regular
+					# python dict and make it an embedded document inside the current doc
+					logger.warn('mongo document does not exist in mongodb and is not part of current transaction - saving as embedded instead of a reference')
+					self.uncommitted[name] = value.copy()
+		else:
+			self.uncommitted[name] = value
 
 	def __delitem__(self, name):
 		del(self.uncommitted[name])
@@ -146,6 +180,9 @@ class MongoDocument(object):
 
 	def items(self):
 		return self.uncommitted.items()
+
+	def copy(self):
+		return self.uncommitted.copy()
 
 	def set(self, somedict):
 		""" Set the document to be equal to the provided dict """
@@ -169,6 +206,10 @@ class MongoDocument(object):
 				self.collection.update({'_id':self.committed['_id']}, self.uncommitted)
 			else:
 				self.collection.insert(self.uncommitted)
+		# if there are queued changes that cannot be completed in this transaction
+		# add them to the session queue to be performed after the transaction
+		if self.queued:
+			self.session.queue.append(self)
 
 		self.committed = self.uncommitted.copy()
 
@@ -183,7 +224,7 @@ class MongoDocument(object):
 
 	def save(self):
 		if self.session.transactional:
-			logging.warn('save() called on transactional document. ignoring...')
+			logger.warn('save() called on transactional document. ignoring...')
 		else:
 			self._save()
 
@@ -246,6 +287,8 @@ class MongoDocument(object):
 
 if __name__ == '__main__':
 	from config import *
+	logging.basicConfig()
+	logger.setLevel(logging.DEBUG)
 	(dbname, dbcol) = ('test_db', 'test_col')
 	session = Session(dbname)
 	try:

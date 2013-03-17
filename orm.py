@@ -17,6 +17,8 @@ class MongoObject(MongoDocument):
 if __name__ == '__main__':
 	import transaction
 	from config import *
+	logging.basicConfig()
+	logging.getLogger('datamanager').setLevel(logging.DEBUG)
 
 	class User(MongoObject):
 		__requiredfields__ = ('name', 'age')
@@ -25,9 +27,16 @@ if __name__ == '__main__':
 	dbname = 'test_db'
 	session = Session(dbname)
 	try:
-		user = User(session, retrieve={'name':'Sid'})
+		user1 = User(session, retrieve={'name':'Sid'})
 	except:
-		user = User(session)
-	user['name'] = 'Sid'
-	user['age'] = 0
+		user1 = User(session)
+	try:
+		user2 = User(session, retrieve={'name':'Dan'})
+	except:
+		user2 = User(session)
+	user1['name'] = 'Sid'
+	user1['age'] = 0
+	user2['name'] = 'Dan'
+	user2['age'] = 0
+	user1['friend'] = user2
 	transaction.commit()

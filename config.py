@@ -10,6 +10,7 @@ class Session(object):
 		self.db = self.connection[dbname]
 		self.transactional = transactional
 		self.transactionInitialized = False
+		self.queue = []
 		self.initialize()
 
 	def initialize(self):
