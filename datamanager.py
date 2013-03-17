@@ -1,10 +1,10 @@
-import transaction
-from transaction.interfaces import TransientError
+import datetime
+import platform
 import logging
 from hashlib import sha256
 from bson.dbref import DBRef
-import platform
-import datetime
+import transaction
+from transaction.interfaces import TransientError
 
 logger = logging.getLogger(__name__)
 
@@ -260,9 +260,12 @@ class MongoDocument(object):
 	def tpc_vote(self, transaction):
 		# check self.committed = current state
 		# or there's a pending txn that's not this one
-		# TODO: make this all atomic?
 		if not self.session.transactionInitialized:
 			raise Exception('MongoDB transactions not initialized correctly! Be sure to create a new session instance or call session.initialize() once at the start of each transaction.')
+		keytypes = map(lambda f:type(f), self.uncommitted.keys())
+		invalidkeys = filter(lambda f:f != str and f != unicode, keytypes)
+		if invalidkeys:
+			raise Exception('Invalid key: Documents must have only string or unicode keys!')
 		if self.committed:
 			if not self.committed.has_key('_id'):
 				raise Exception('Committed document does not have an _id field!') # this should never happen (if it does then we're in trouble - tpc_abort will fail)
