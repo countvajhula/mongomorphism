@@ -3,6 +3,8 @@ import platform
 import logging
 from hashlib import sha256
 from bson.dbref import DBRef
+from bson import BSON
+import jsonpickle
 import transaction
 from transaction.interfaces import TransientError
 
@@ -154,7 +156,12 @@ class MongoDocument(object):
 			if livedocs:
 				return livedocs[0]
 			return MongoDocument(self.session, self.collection.name, retrieve=doc)
-		return self.uncommitted[name]
+		else:
+			try:
+				value = jsonpickle.decode(self.uncommitted[name])
+			except:
+				value = self.uncommitted[name]
+			return value
 
 	def __setitem__(self, name, value):
 		if self.session.transactional:
@@ -176,7 +183,11 @@ class MongoDocument(object):
 					logger.warn('mongo document does not exist in mongodb and is not part of current transaction - saving as embedded instead of a reference')
 					self.uncommitted[name] = value.copy()
 		else:
-			self.uncommitted[name] = value
+			try:
+				BSON.encode({name:value})
+				self.uncommitted[name] = value
+			except:
+				self.uncommitted[name] = jsonpickle.encode(value)
 
 	def __delitem__(self, name):
 		del(self.uncommitted[name])
@@ -266,6 +277,11 @@ class MongoDocument(object):
 		invalidkeys = filter(lambda f:f != str and f != unicode, keytypes)
 		if invalidkeys:
 			raise Exception('Invalid key: Documents must have only string or unicode keys!')
+		try:
+			BSON.encode(self.uncommitted) # final check that document is BSON-compatible
+		except:
+			raise
+
 		if self.committed:
 			if not self.committed.has_key('_id'):
 				raise Exception('Committed document does not have an _id field!') # this should never happen (if it does then we're in trouble - tpc_abort will fail)
