@@ -165,9 +165,7 @@ class MongoDocument(object):
 
 	def __setitem__(self, name, value):
 		if self.session.transactional:
-			txn = transaction.get()
-			if not self in txn._resources:
-				txn.join(self)
+			self._join_transaction_if_necessary()
 		if hasattr(value, 'mongo_data_manager'):
 			if value.has_key('_id'):
 				self.uncommitted[name] = DBRef(value.collection.name, value['_id'])
@@ -206,6 +204,8 @@ class MongoDocument(object):
 
 	def set(self, somedict):
 		""" Set the document to be equal to the provided dict """
+		if self.session.transactional:
+			self._join_transaction_if_necessary()
 		self.uncommitted = somedict # if somedict = None, this will delete the doc when the transaction is committed. alternatively, delete() can be called which does the same thing.
 
 	def __repr__(self):
@@ -250,6 +250,7 @@ class MongoDocument(object):
 
 	def delete(self):
 		if self.session.transactional:
+			self._join_transaction_if_necessary()
 			self.uncommitted = None
 		else:
 			self._delete()
@@ -257,6 +258,13 @@ class MongoDocument(object):
 	#
 	# implement transaction protocol methods
 	#
+
+	def _join_transaction_if_necessary(self):
+		""" Join current transaction if document is not already part of it.
+		"""
+		txn = transaction.get()
+		if not self in txn._resources:
+			txn.join(self)
 
 	def abort(self, transaction):
 		self.uncommitted = self.committed.copy()
@@ -273,14 +281,16 @@ class MongoDocument(object):
 		# or there's a pending txn that's not this one
 		if not self.session.transactionInitialized:
 			raise Exception('MongoDB transactions not initialized correctly! Be sure to create a new session instance or call session.initialize() once at the start of each transaction.')
-		keytypes = map(lambda f:type(f), self.uncommitted.keys())
-		invalidkeys = filter(lambda f:f != str and f != unicode, keytypes)
-		if invalidkeys:
-			raise Exception('Invalid key: Documents must have only string or unicode keys!')
-		try:
-			BSON.encode(self.uncommitted) # final check that document is BSON-compatible
-		except:
-			raise
+		if self.uncommitted:
+			# validate new data
+			keytypes = map(lambda f:type(f), self.uncommitted.keys())
+			invalidkeys = filter(lambda f:f != str and f != unicode, keytypes)
+			if invalidkeys:
+				raise Exception('Invalid key: Documents must have only string or unicode keys!')
+			try:
+				BSON.encode(self.uncommitted) # final check that document is BSON-compatible
+			except:
+				raise
 
 		if self.committed:
 			if not self.committed.has_key('_id'):

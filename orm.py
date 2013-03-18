@@ -10,8 +10,9 @@ class MongoObject(MongoDocument):
 
 	def tpc_vote(self, transaction):
 		# do validation
-		for field in self.__requiredfields__:
-			if not self.has_key(field): raise Exception('Required field missing: ' + field)
+		if self.uncommitted:
+			for field in self.__requiredfields__:
+				if not self.has_key(field): raise Exception('Required field missing: ' + field)
 		super(MongoObject, self).tpc_vote(transaction)
 
 if __name__ == '__main__':
