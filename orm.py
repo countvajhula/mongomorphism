@@ -8,12 +8,18 @@ class MongoObject(MongoDocument):
 		self.session = session
 		super(MongoObject, self).__init__(self.session, self.__collection__, retrieve)
 
-	def tpc_vote(self, transaction):
-		# do validation
+	def validate(self):
 		if self.uncommitted:
 			for field in self.__requiredfields__:
 				if not self.has_key(field): raise Exception('Required field missing: ' + field)
+
+	def tpc_vote(self, transaction):
+		self.validate()
 		super(MongoObject, self).tpc_vote(transaction)
+
+	def save(self):
+		self.validate()
+		super(MongoObject, self).save()
 
 if __name__ == '__main__':
 	import transaction
