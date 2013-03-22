@@ -7,9 +7,11 @@ h3. Features:
 * Provides transaction-like semantics (all-or-nothing commit behavior)
 * Provides basic ORM functionality while still remaining schema-free
 * Transparent support for Mongo references (DBRefs):
+
 bc. doc1['friend'] = doc2 # doc2 is stored as a DBRef
 
 * Transparent support for arbitrary objects as values (not just dicts, lists, and other BSON data)
+
 bc. myobj = SomeClass()
 doc1['obj'] = myobj # behind the scenes, this instance will be serialized to JSON in mongodb when committed
 
