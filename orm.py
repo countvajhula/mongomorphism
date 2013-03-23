@@ -18,8 +18,11 @@ class MongoObject(MongoDocument):
 		super(MongoObject, self).tpc_vote(transaction)
 
 	def save(self):
-		self.validate()
-		super(MongoObject, self).save()
+		if self.session.transactional:
+			logger.warn('save() called on transactional document. ignoring...')
+		else:
+			self.validate()
+			super(MongoObject, self).save()
 
 if __name__ == '__main__':
 	import transaction
