@@ -1,109 +1,19 @@
-import datetime
-import platform
 import logging
-import functools
-from hashlib import sha256
 from bson.dbref import DBRef
 from bson import BSON
 import jsonpickle
 import transaction
 from transaction.interfaces import TransientError
+import support
+from support import mutative_operation
+from mongomorphism.exceptions import (
+		DocumentNotFoundError,
+		DocumentMatchNotUniqueError,
+		)
+
 
 logger = logging.getLogger(__name__)
 
-#
-# transaction support stuff
-#
-
-def gen_transaction_id(transaction):
-	""" Generate a globally unique id for a transaction
-	TODO: mongo _id is globally unique so can just use that instead
-	"""
-	timestamp = str(datetime.datetime.utcnow()) # particular moment in time
-	local_id = str(id(transaction)) # guaranteed to be unique on this machine (but not all machines concurrently acting) at the present moment
-	host_id = platform.node() # hostname as something 'globally unique'
-	# alternatively MAC address, not sure if reliable: from uuid import getnode; mac = getnode()
-	global_id = sha256("|".join((timestamp, local_id, host_id))).hexdigest()
-	return global_id # repeated calls for the same transaction would NOT return the same ID - should be called only to generate a unique ID
-
-def mongoListener_prehook(*args, **kws):
-	""" Examine each transaction before it is committed, and if there are any mongodb data managers
-	participating, add the needed commit hooks to support transactions correctly on those objects
-	"""
-	txn = transaction.get()
-	mongodms = filter(lambda f: hasattr(f, 'mongo_data_manager'), txn._resources)
-	sessions = set(map(lambda f: f.session, mongodms))
-	for session in iter(sessions):
-		txn.addBeforeCommitHook(mongoInitTxn_prehook, args=(), kws={'session':session})
-		txn.addAfterCommitHook(mongoConcludeTxn_posthook, args=(), kws={'session':session})
-
-def mongoListener_posthook(*args, **kws):
-	""" Mark session transactionInitialized as false
-	"""
-	session = kws['session']
-	session.transactionInitialized = False
-	session.initialize() # so that document can continue being used transactionally without manual reinitialization
-
-def mongoInitTxn_prehook(*args, **kws):
-	""" Called just before transaction is committed -- register transaction in db's 'transaction'
-	collection. Ensure that any documents that are part of the current transaction are only associated
-	with one data manager.
-	"""
-	db = kws['session'].db
-	txn = transaction.get()
-	ActiveTransaction.transactionId = gen_transaction_id(txn)
-	timestamp = datetime.datetime.utcnow()
-	db.transactions.insert({'tid':ActiveTransaction.transactionId, 'state':'pending', 'date_created':timestamp, 'date_modified':timestamp})
-	# list participating dm's, if not injective: dms->docs then call abort() here
-	mongodms = filter(lambda f: hasattr(f, 'mongo_data_manager'), txn._resources)
-	txn_docIds = {}
-	for dm in mongodms:
-		if dm.docId:
-			if txn_docIds.has_key(dm.docId):
-				raise DuplicateDataManagersError('Aborting transaction: duplicate data managers for same document in single transaction!')
-			txn_docIds[dm.docId] = 1
-
-def mongoConcludeTxn_posthook(success, *args, **kws):
-	""" Called immediately after a transaction is committed: If transaction succeeded, perform any pending
-	queued operations. Seal transaction state at 'done'/'failed'.
-	"""
-	session = kws['session']
-	db = session.db
-	timestamp = datetime.datetime.utcnow()
-	if success:
-		# perform queued operations
-		if session.queue:
-			logger.debug('performing queued operations')
-			def updateRefs(doc):
-				col = doc.collection
-				queued = doc.queued
-				for key,doc_ref in queued.items():
-					ref = DBRef(doc_ref.collection.name, doc_ref['_id'])
-					col.update({'_id':doc['_id']}, {'$set':{key:ref}})
-				doc.queued = {}
-			for doc in session.queue:
-				updateRefs(doc)
-			session.queue = []
-		db.transactions.update({'tid':ActiveTransaction.transactionId}, {'$set':{'state':'done', 'date_modified':timestamp}})
-	else:
-		db.transactions.update({'tid':ActiveTransaction.transactionId}, {'$set':{'state':'failed', 'date_modified':timestamp}})
-	ActiveTransaction.transactionId = None # shouldn't matter, but just in case
-
-def mutative_operation(func):
-	""" For any operation that changes the document, join current transaction
-	if in transactional mode.
-	"""
-	@functools.wraps(func)
-	def wrapper(*args, **kwargs):
-		self = args[0]
-		if self.session.transactional:
-			self._join_transaction_if_necessary()
-		return func(*args, **kwargs)
-	return wrapper
-
-class ActiveTransaction(object):
-	""" Handle to the active transaction """
-	transactionId = None
 
 class MongoSavepoint(object):
 	def __init__(self, dm):
@@ -112,15 +22,6 @@ class MongoSavepoint(object):
 	
 	def rollback(self):
 		self.dm.uncommitted = self.saved_committed.copy()
-
-class DocumentNotFoundError(Exception):
-	pass
-
-class DocumentMatchNotUniqueError(Exception):
-	pass
-
-class DuplicateDataManagersError(Exception):
-	pass
 
 class MongoDocument(object):
 	""" A Mongodb data manager. A MongoDocument represents a document in mongo database,
@@ -294,7 +195,7 @@ class MongoDocument(object):
 	
 	def tpc_begin(self, transaction):
 		if self.committed:
-			self.collection.update({'_id':self.committed['_id']}, {'$push':{'pendingTransactions':ActiveTransaction.transactionId}})
+			self.collection.update({'_id':self.committed['_id']}, {'$push':{'pendingTransactions':support.ActiveTransaction.transactionId}})
 
 	def commit(self, transaction):
 		pass
@@ -324,7 +225,7 @@ class MongoDocument(object):
 			pendingTransactions = dbcommitted.pop('pendingTransactions')
 			if self.committed.has_key('pendingTransactions'):
 				raise TransientError('Concurrent modification! Transaction aborting...')
-			if len(pendingTransactions) > 1 or pendingTransactions[0] != ActiveTransaction.transactionId:
+			if len(pendingTransactions) > 1 or pendingTransactions[0] != support.ActiveTransaction.transactionId:
 				raise TransientError('Concurrent modification! Transaction aborting...')
 			if dbcommitted != self.committed:
 				raise TransientError('Concurrent modification! Transaction aborting...')
@@ -332,7 +233,7 @@ class MongoDocument(object):
 	def tpc_abort(self, transaction):
 		self.uncommitted = self.committed.copy()
 		if self.committed:
-			self.collection.update({'_id':self.committed['_id']}, {'$pull':{'pendingTransactions':ActiveTransaction.transactionId}})
+			self.collection.update({'_id':self.committed['_id']}, {'$pull':{'pendingTransactions':support.ActiveTransaction.transactionId}})
 			dbcommitted = self.collection.find_one({'_id':self.committed['_id']})
 			if dbcommitted.has_key('pendingTransactions') and not dbcommitted['pendingTransactions']:
 				self.collection.update({'_id':self.committed['_id']}, {'$unset':{'pendingTransactions':1}})

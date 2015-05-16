@@ -1,6 +1,6 @@
 from pymongo import MongoClient
 import transaction
-import datamanager
+import hooks
 
 class Session(object):
 	""" Holds database info, and whether the session is to be transactional or not (default yes)
@@ -20,6 +20,7 @@ class Session(object):
 		"""
 		if self.transactional and not self.transactionInitialized:
 			txn = transaction.get()
-			txn.addBeforeCommitHook(datamanager.mongoListener_prehook, args=(), kws={})
-			txn.addAfterCommitHook(datamanager.mongoListener_posthook, args=(), kws={'session':self})
+			txn.addBeforeCommitHook(hooks.mongoListener_prehook, args=(), kws={})
+			txn.addAfterCommitHook(hooks.mongoListener_posthook, args=(), kws={'session':self})
 			self.transactionInitialized = True
+

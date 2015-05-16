@@ -1,8 +1,10 @@
 import unittest
 from datamanager import MongoDocument
-from datamanager import DocumentMatchNotUniqueError
-from datamanager import DocumentNotFoundError
-from datamanager import DuplicateDataManagersError
+from mongomorphism.exceptions import (
+		DocumentMatchNotUniqueError,
+		DocumentNotFoundError,
+		DuplicateDataManagersError,
+		)
 from config import Session
 from pymongo import MongoClient
 import transaction

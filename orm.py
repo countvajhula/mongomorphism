@@ -1,8 +1,8 @@
 from datamanager import MongoDocument
+from mongomorphism.exceptions import ORMValidationError
 import logging
 
-class ORMValidationError(Exception):
-	pass
+logger = logging.getLogger(__name__)
 
 class MongoObject(MongoDocument):
 	__requiredfields__ = ()
@@ -30,7 +30,7 @@ if __name__ == '__main__':
 	import transaction
 	from config import Session
 	logging.basicConfig()
-	logging.getLogger('datamanager').setLevel(logging.DEBUG)
+	logger.setLevel(logging.DEBUG)
 
 	class User(MongoObject):
 		__requiredfields__ = ('name', 'age')

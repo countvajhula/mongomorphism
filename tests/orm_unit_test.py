@@ -2,7 +2,7 @@
 
 import unittest
 from orm import MongoObject
-from orm import ORMValidationError
+from mongomorphism.exceptions import ORMValidationError
 import transaction
 
 colname = 'test_collection'
