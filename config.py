@@ -4,6 +4,7 @@ import datamanager
 
 class Session(object):
 	""" Holds database info, and whether the session is to be transactional or not (default yes)
+	A single session object can be shared by multiple participants in a transaction.
 	"""
 	def __init__(self, dbname, host=None, port=None, transactional=True):
 		self.connection = MongoClient(host, port)

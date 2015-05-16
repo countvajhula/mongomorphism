@@ -1,4 +1,8 @@
-from datamanager import *
+from datamanager import MongoDocument
+import logging
+
+class ORMValidationError(Exception):
+	pass
 
 class MongoObject(MongoDocument):
 	__requiredfields__ = ()
@@ -11,22 +15,20 @@ class MongoObject(MongoDocument):
 	def validate(self):
 		if self.uncommitted:
 			for field in self.__requiredfields__:
-				if not self.has_key(field): raise Exception('Required field missing: ' + field)
+				if not self.has_key(field): raise ORMValidationError('Required field missing: ' + field)
 
 	def tpc_vote(self, transaction):
 		self.validate()
 		super(MongoObject, self).tpc_vote(transaction)
 
 	def save(self):
-		if self.session.transactional:
-			logger.warn('save() called on transactional document. ignoring...')
-		else:
+		if not self.session.transactional:
 			self.validate()
-			super(MongoObject, self).save()
+		super(MongoObject, self).save()
 
 if __name__ == '__main__':
 	import transaction
-	from config import *
+	from config import Session
 	logging.basicConfig()
 	logging.getLogger('datamanager').setLevel(logging.DEBUG)
 

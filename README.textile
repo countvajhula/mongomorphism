@@ -22,7 +22,7 @@ h1. Usage
 h3. Transactional:
 
 bc. from mongomorphism.datamanager import MongoDocument
-from mongomorphism.config import *
+from mongomorphism.config import Session
 import transaction
 
 bc. session = Session('my_db') # create a session by passing the name of the database to use
@@ -36,7 +36,7 @@ Note: This mode operates by implementing a "data manager":http://zodb.readthedoc
 h3. Non-transactional:
 
 bc. from mongomorphism.datamanager import MongoDocument
-from mongomorphism.config import *
+from mongomorphism.config import Session
 
 bc. session = Session('my_db', transactional=False) # creates a non-transactional session
 doc = MongoDocument(session, 'my_collection')
@@ -47,7 +47,7 @@ doc.save() # doc is persisted to mongodb when save() is called
 h3. To use as an "ORM":
 
 bc. from mongomorphism.orm import MongoObject
-from mongomorphism.config import *
+from mongomorphism.config import Session
 import transaction
 
 bc. # define your models by extending MongoObject
@@ -65,6 +65,7 @@ You could also use the ORM in non-transactional mode similar to the previous exa
 
 h3. Retrieve an existing document from MongoDB:
 
+p. Just pass a dict as argument 'retrieve' while creating the MongoDocument or MongoObject ---
 p. non-ORM:
 
 bc. doc = MongoDocument(session, 'my_collection', retrieve={'name':'Sid'})

@@ -1,6 +1,7 @@
 import datetime
 import platform
 import logging
+import functools
 from hashlib import sha256
 from bson.dbref import DBRef
 from bson import BSON
@@ -41,6 +42,7 @@ def mongoListener_posthook(*args, **kws):
 	"""
 	session = kws['session']
 	session.transactionInitialized = False
+	session.initialize() # so that document can continue being used transactionally without manual reinitialization
 
 def mongoInitTxn_prehook(*args, **kws):
 	""" Called just before transaction is committed -- register transaction in db's 'transaction'
@@ -58,7 +60,7 @@ def mongoInitTxn_prehook(*args, **kws):
 	for dm in mongodms:
 		if dm.docId:
 			if txn_docIds.has_key(dm.docId):
-				raise Exception('Aborting transaction: duplicate data managers for same document in single transaction!')
+				raise DuplicateDataManagersError('Aborting transaction: duplicate data managers for same document in single transaction!')
 			txn_docIds[dm.docId] = 1
 
 def mongoConcludeTxn_posthook(success, *args, **kws):
@@ -87,6 +89,18 @@ def mongoConcludeTxn_posthook(success, *args, **kws):
 		db.transactions.update({'tid':ActiveTransaction.transactionId}, {'$set':{'state':'failed', 'date_modified':timestamp}})
 	ActiveTransaction.transactionId = None # shouldn't matter, but just in case
 
+def mutative_operation(func):
+	""" For any operation that changes the document, join current transaction
+	if in transactional mode.
+	"""
+	@functools.wraps(func)
+	def wrapper(*args, **kwargs):
+		self = args[0]
+		if self.session.transactional:
+			self._join_transaction_if_necessary()
+		return func(*args, **kwargs)
+	return wrapper
+
 class ActiveTransaction(object):
 	""" Handle to the active transaction """
 	transactionId = None
@@ -98,6 +112,15 @@ class MongoSavepoint(object):
 	
 	def rollback(self):
 		self.dm.uncommitted = self.saved_committed.copy()
+
+class DocumentNotFoundError(Exception):
+	pass
+
+class DocumentMatchNotUniqueError(Exception):
+	pass
+
+class DuplicateDataManagersError(Exception):
+	pass
 
 class MongoDocument(object):
 	""" A Mongodb data manager. A MongoDocument represents a document in mongo database,
@@ -127,8 +150,8 @@ class MongoDocument(object):
 			# if provided keys are not sufficient to retrieve unique document
 			# or if no document returned, throw an exception here
 			matchingdocs = self.collection.find(retrieve)
-			if matchingdocs.count() == 0: raise Exception('Document not found!' + str(retrieve))
-			if matchingdocs.count() > 1: raise Exception('Multiple matches for document, should be unique:' + str(retrieve))
+			if matchingdocs.count() == 0: raise DocumentNotFoundError('Document not found!' + str(retrieve))
+			if matchingdocs.count() > 1: raise DocumentMatchNotUniqueError('Multiple matches for document, should be unique:' + str(retrieve))
 			committed = matchingdocs.next()
 
 		self.committed = committed
@@ -163,9 +186,8 @@ class MongoDocument(object):
 				value = self.uncommitted[name]
 			return value
 
+	@mutative_operation
 	def __setitem__(self, name, value):
-		if self.session.transactional:
-			self._join_transaction_if_necessary()
 		if hasattr(value, 'mongo_data_manager'):
 			if value.has_key('_id'):
 				self.uncommitted[name] = DBRef(value.collection.name, value['_id'])
@@ -187,6 +209,7 @@ class MongoDocument(object):
 			except:
 				self.uncommitted[name] = jsonpickle.encode(value)
 
+	@mutative_operation
 	def __delitem__(self, name):
 		del(self.uncommitted[name])
 
@@ -202,10 +225,9 @@ class MongoDocument(object):
 	def copy(self):
 		return self.uncommitted.copy()
 
+	@mutative_operation
 	def set(self, somedict):
 		""" Set the document to be equal to the provided dict """
-		if self.session.transactional:
-			self._join_transaction_if_necessary()
 		self.uncommitted = somedict # if somedict = None, this will delete the doc when the transaction is committed. alternatively, delete() can be called which does the same thing.
 
 	def __repr__(self):
@@ -248,12 +270,13 @@ class MongoDocument(object):
 		else:
 			self._save()
 
+	@mutative_operation
 	def delete(self):
 		if self.session.transactional:
-			self._join_transaction_if_necessary()
 			self.uncommitted = None
 		else:
 			self._delete()
+			self.committed = self.uncommitted.copy()
 
 	#
 	# implement transaction protocol methods
@@ -324,7 +347,7 @@ class MongoDocument(object):
 		return 'zzmongodm' + str(id(self)) # prioritize last since it's not "true" transactional
 
 if __name__ == '__main__':
-	from config import *
+	from config import Session
 	logging.basicConfig()
 	logger.setLevel(logging.DEBUG)
 	(dbname, dbcol) = ('test_db', 'test_col')
