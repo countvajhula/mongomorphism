@@ -66,6 +66,7 @@ You could also use the ORM in non-transactional mode similar to the previous exa
 h3. Retrieve an existing document from MongoDB:
 
 p. Just pass a dict as argument 'retrieve' while creating the MongoDocument or MongoObject ---
+
 p. non-ORM:
 
 bc. doc = MongoDocument(session, 'my_collection', retrieve={'name':'Sid'})
