@@ -32,10 +32,13 @@ def mongo_listener_posthook(*args, **kws):
 	subsequent transaction.
 	"""
 	session = kws['session']
-	session.active = False
-	# so that document can continue being used transactionally
-	# without manual reinitialization:
-	session.begin()
+	# if session is not active, then assume it has been closed
+	# and don't reinitialize (i.e. add hooks) for subsequent transactions
+	if session.active:
+		session.close()
+		# so that document can continue being used transactionally
+		# without manual reinitialization:
+		session.begin()
 
 def mongo_transaction_prehook(*args, **kws):
 	""" Initialize transaction. Called just before transaction is committed.

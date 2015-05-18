@@ -16,3 +16,8 @@ class DuplicateDataManagersError(Exception):
 class ORMValidationError(Exception):
 	pass
 
+# Transactional errors
+
+class SessionNotInitializedError(Exception):
+	pass
+

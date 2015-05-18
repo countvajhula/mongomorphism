@@ -2,6 +2,7 @@
 
 import unittest
 from datamanager import MongoDocument
+from mongomorphism.exceptions import SessionNotInitializedError
 import transaction
 
 colname = 'test_collection'
@@ -9,6 +10,7 @@ colname = 'test_collection'
 class SessionStub(object):
 	db = {colname: None}
 	transactional = True
+	active = True
 
 class Transactional_GoodInput(unittest.TestCase):
 
@@ -46,13 +48,19 @@ class Transactional_BadInput(unittest.TestCase):
 	def tearDown(self):
 		transaction.abort()
 
-	def test_save_ignored_on_transactional_document(self):
+	def test_save_should_be_ignored_on_transactional_document(self):
 		session = SessionStub()
 		doc = MongoDocument(session, colname)
 		doc['name'] = 'Saruman'
 		doc.save()
 		self.assertNotEqual(doc.committed, doc.uncommitted)
 		self.assertIn(doc, transaction.get()._resources)
+
+	def test_transaction_on_closed_session_should_raise_error(self):
+		session = SessionStub()
+		session.active = False
+		doc = MongoDocument(session, colname)
+		self.assertRaises(SessionNotInitializedError, doc.__setitem__, 'name', 'Saruman')
 
 class Transactional_EdgeCases(unittest.TestCase):
 	pass

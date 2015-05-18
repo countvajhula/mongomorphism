@@ -5,6 +5,7 @@ import platform
 from hashlib import sha256
 import functools
 import logging
+from mongomorphism.exceptions import SessionNotInitializedError
 
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,10 @@ def mutative_operation(func):
 	def wrapper(*args, **kwargs):
 		self = args[0]
 		if self.session.transactional:
+			if not self.session.active:
+				raise SessionNotInitializedError(
+					'Session not initialized correctly, or stale session.'
+					' Reinitialize by calling begin()')
 			self._join_transaction_if_necessary()
 		return func(*args, **kwargs)
 	return wrapper

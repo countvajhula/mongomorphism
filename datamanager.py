@@ -9,6 +9,7 @@ from support import mutative_operation
 from mongomorphism.exceptions import (
 		DocumentNotFoundError,
 		DocumentMatchNotUniqueError,
+		SessionNotInitializedError,
 		)
 
 
@@ -215,27 +216,27 @@ class MongoDocument(object):
 		if not self in txn._resources:
 			txn.join(self)
 
-	def abort(self, transaction):
+	def abort(self, txn):
 		self.uncommitted = self.committed.copy()
 	
-	def tpc_begin(self, transaction):
+	def tpc_begin(self, txn):
 		if self.committed:
 			self.collection.update({'_id':self.committed['_id']},
 			                       {'$push':
 			                       {'pending_transactions':
 			                       support.ActiveTransaction.transaction_id}})
 
-	def commit(self, transaction):
+	def commit(self, txn):
 		pass
 
-	def tpc_vote(self, transaction):
+	def tpc_vote(self, txn):
 		# check self.committed = current state
 		# or there's a pending txn that's not this one
 		if not self.session.active:
-			raise Exception('MongoDB session not initialized correctly!'
-			                ' Be sure to create a new session instance'
-							' or call session.begin() once at the start'
-							' of each transaction.')
+			raise SessionNotInitializedError(
+			    'MongoDB session not initialized correctly! Be sure to'
+			    ' create a new session instance or call session.begin()'
+			    ' once at the start of each transaction.')
 		if self.uncommitted:
 			# validate new data
 			keytypes = map(lambda f:type(f), self.uncommitted.keys())
@@ -273,7 +274,7 @@ class MongoDocument(object):
 				raise TransientError(
 				    'Concurrent modification! Transaction aborting...')
 
-	def tpc_abort(self, transaction):
+	def tpc_abort(self, txn):
 		self.uncommitted = self.committed.copy()
 		if self.committed:
 			self.collection.update(
@@ -287,7 +288,7 @@ class MongoDocument(object):
 				self.collection.update({'_id':self.committed['_id']},
 				                       {'$unset':{'pending_transactions':1}})
 	
-	def tpc_finish(self, transaction):
+	def tpc_finish(self, txn):
 		self._save()
 
 	def savepoint(self):

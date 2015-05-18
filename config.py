@@ -28,3 +28,13 @@ class Session(object):
 			                       args=(), kws={'session':self})
 			self.active = True
 
+	def close(self):
+		""" End a session. This should be called at the end of interaction
+		with the db, to remove mongo-specific hooks from the transaction.
+		The session can be begun again by calling begin().
+		Note: If there are changes already queued in the current
+		transaction, these will give an error if a commit is attempted;
+		they should be aborted by using transaction.abort().
+		"""
+		self.active = False
+

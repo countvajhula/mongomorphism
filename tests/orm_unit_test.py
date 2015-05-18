@@ -14,6 +14,7 @@ class Sample(MongoObject):
 class SessionStub(object):
 	db = {colname: None}
 	transactional = True
+	active = True
 
 class GoodInput(unittest.TestCase):
 	""" Check that fields are validated correctly when saving a MongoObject
