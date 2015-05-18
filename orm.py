@@ -10,12 +10,16 @@ class MongoObject(MongoDocument):
 
 	def __init__(self, session, retrieve=None):
 		self.session = session
-		super(MongoObject, self).__init__(self.session, self.__collection__, retrieve)
+		super(MongoObject, self).__init__(self.session,
+		                                  self.__collection__,
+		                                  retrieve)
 
 	def validate(self):
 		if self.uncommitted:
 			for field in self.__requiredfields__:
-				if not self.has_key(field): raise ORMValidationError('Required field missing: ' + field)
+				if not self.has_key(field):
+					raise ORMValidationError(
+					    'Required field missing: ' + field)
 
 	def tpc_vote(self, transaction):
 		self.validate()

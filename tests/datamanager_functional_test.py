@@ -26,16 +26,22 @@ class Transactional_GoodInput(unittest.TestCase):
 	def test_data_equivalence_after_transaction_committed(self):
 		self.doc['name'] = 'Saruman'
 		transaction.commit()
-		doc2 = MongoDocument(self.session, colname, retrieve={'name':'Saruman'})
+		doc2 = MongoDocument(self.session,
+		                     colname,
+		                     retrieve={'name':'Saruman'})
 		self.assertEqual(self.doc.uncommitted, self.doc.committed)
 		self.assertEqual(self.doc.committed, doc2.committed)
 
 	def test_documents_should_be_persisted_only_after_transaction_committed(self):
 		self.doc['name'] = 'Saruman'
 		self.doc.save()
-		self.assertRaises(DocumentNotFoundError, MongoDocument, self.session, colname, retrieve={'name':'Saruman'})
+		self.assertRaises(DocumentNotFoundError,
+		                  MongoDocument,
+		                  self.session, colname, retrieve={'name':'Saruman'})
 		transaction.commit()
-		doc2 = MongoDocument(self.session, colname, retrieve={'name':'Saruman'})
+		doc2 = MongoDocument(self.session,
+		                     colname,
+		                     retrieve={'name':'Saruman'})
 		self.assertEqual(self.doc.committed, doc2.committed)
 
 	def test_should_correctly_persist_documents_in_multi_document_transaction(self):
@@ -45,8 +51,12 @@ class Transactional_GoodInput(unittest.TestCase):
 		doc2['firstname'] = 'Saruman'
 		doc2['lastname'] = 'theGreen'
 		transaction.commit()
-		doc3 = MongoDocument(self.session, colname, retrieve={'firstname':'Saruman', 'lastname': 'theWhite'})
-		doc4 = MongoDocument(self.session, colname, retrieve={'firstname':'Saruman', 'lastname': 'theGreen'})
+		doc3 = MongoDocument(self.session, colname,
+		                     retrieve={'firstname':'Saruman',
+		                               'lastname': 'theWhite'})
+		doc4 = MongoDocument(self.session, colname,
+		                     retrieve={'firstname':'Saruman',
+		                               'lastname': 'theGreen'})
 		self.assertEqual(self.doc.committed, doc3.committed)
 		self.assertEqual(doc2.committed, doc4.committed)
 
@@ -55,7 +65,9 @@ class Transactional_GoodInput(unittest.TestCase):
 		transaction.commit()
 		self.doc.delete()
 		transaction.commit()
-		self.assertRaises(DocumentNotFoundError, MongoDocument, self.session, colname, retrieve={'name':'Saruman'})
+		self.assertRaises(DocumentNotFoundError,
+		                  MongoDocument,
+		                  self.session, colname, retrieve={'name':'Saruman'})
 
 class Transactional_BadInput(unittest.TestCase):
 
@@ -71,8 +83,12 @@ class Transactional_BadInput(unittest.TestCase):
 	def test_should_raise_error_if_duplicate_data_managers_are_used_on_the_same_document(self):
 		self.doc['name'] = 'Saruman'
 		transaction.commit()
-		doc2 = MongoDocument(self.session, colname, retrieve={'name':'Saruman'})
-		doc3 = MongoDocument(self.session, colname, retrieve={'name':'Saruman'})
+		doc2 = MongoDocument(self.session,
+		                     colname,
+		                     retrieve={'name':'Saruman'})
+		doc3 = MongoDocument(self.session,
+		                     colname,
+		                     retrieve={'name':'Saruman'})
 		doc2['profession'] = 'wizard'
 		doc3['profession'] = 'warlock'
 		self.assertRaises(DuplicateDataManagersError, transaction.commit)
@@ -92,7 +108,7 @@ class Transactional_EdgeCases(unittest.TestCase):
 		self.doc['name'] = 'Saruman'
 		transaction.commit()
 		self.assertTrue(self.doc.session.transactional)
-		self.assertTrue(self.doc.session.transactionInitialized)
+		self.assertTrue(self.doc.session.active)
 
 	def test_deleted_documents_should_be_empty(self):
 		self.doc['name'] = 'Saruman'
@@ -105,16 +121,23 @@ class Transactional_EdgeCases(unittest.TestCase):
 	def test_should_be_able_to_use_session_across_transactions(self):
 		self.doc['name'] = 'Saruman'
 		doc2 = MongoDocument(self.session, colname)
-		self.assertEqual(transaction.get()._resources, [self.doc]) # doc2 not part of this transaction since no data
+		# doc2 not part of this transaction since no data
+		self.assertEqual(transaction.get()._resources, [self.doc])
 		transaction.commit()
 		doc2['name'] = 'Gandalf'
-		self.assertEqual(transaction.get()._resources, [doc2]) # doc not part of this transaction since no changes
+		# doc not part of this transaction since no changes
+		self.assertEqual(transaction.get()._resources, [doc2])
 		transaction.commit()
 		self.doc['profession'] = 'wizard'
 		doc2['profession'] = 'wizardToo'
-		self.assertEqual(transaction.get()._resources, [self.doc, doc2]) # both should be part of this transaction
-		doc3 = MongoDocument(self.session, colname, retrieve={'name':'Saruman'})
-		doc4 = MongoDocument(self.session, colname, retrieve={'name':'Gandalf'})
+		# both should be part of this transaction
+		self.assertEqual(transaction.get()._resources, [self.doc, doc2])
+		doc3 = MongoDocument(self.session,
+		                     colname,
+		                     retrieve={'name':'Saruman'})
+		doc4 = MongoDocument(self.session,
+		                     colname,
+		                     retrieve={'name':'Gandalf'})
 		self.assertEqual(self.doc.committed, doc3.committed)
 		self.assertEqual(doc2.committed, doc4.committed)
 
@@ -131,7 +154,9 @@ class NonTransactional_GoodInput(unittest.TestCase):
 	def test_data_equivalence_after_persisting(self):
 		self.doc['name'] = 'Saruman'
 		self.doc.save()
-		doc2 = MongoDocument(self.session, colname, retrieve={'name':'Saruman'})
+		doc2 = MongoDocument(self.session,
+		                     colname,
+		                     retrieve={'name':'Saruman'})
 		self.assertEqual(self.doc.uncommitted, self.doc.committed)
 		self.assertEqual(self.doc.committed, doc2.committed)
 
@@ -139,14 +164,19 @@ class NonTransactional_GoodInput(unittest.TestCase):
 		self.doc['name'] = 'Saruman'
 		self.doc.save()
 		self.assertIn('_id', self.doc.committed)
-		doc2 = MongoDocument(self.session, colname, retrieve={'name':'Saruman'})
-		self.assertEqual(self.doc.committed, doc2.committed) # should now both include mongodb _id
+		doc2 = MongoDocument(self.session,
+		                     colname,
+		                     retrieve={'name':'Saruman'})
+		# should now both include mongodb _id
+		self.assertEqual(self.doc.committed, doc2.committed)
 
 	def test_deleted_documents_should_be_deleted(self):
 		self.doc['name'] = 'Saruman'
 		self.doc.save()
 		self.doc.delete()
-		self.assertRaises(DocumentNotFoundError, MongoDocument, self.session, colname, retrieve={'name':'Saruman'})
+		self.assertRaises(DocumentNotFoundError,
+		                  MongoDocument,
+		                  self.session, colname, retrieve={'name':'Saruman'})
 
 class NonTransactional_BadInput(unittest.TestCase):
 
@@ -159,7 +189,9 @@ class NonTransactional_BadInput(unittest.TestCase):
 		conn.drop_database(dbname)
 
 	def test_should_raise_error_if_retrieve_spec_does_not_find_document(self):
-		self.assertRaises(DocumentNotFoundError, MongoDocument, self.session, colname, retrieve={'firstname':'Saruman'})
+		self.assertRaises(DocumentNotFoundError,
+		                  MongoDocument,
+		                  self.session, colname, retrieve={'firstname':'Saruman'})
 
 	def test_should_raise_error_if_retrieve_spec_does_not_find_unique_document(self):
 		self.doc['firstname'] = 'Saruman'
@@ -169,7 +201,9 @@ class NonTransactional_BadInput(unittest.TestCase):
 		doc2['firstname'] = 'Saruman'
 		doc2['lastname'] = 'theGreen'
 		doc2.save()
-		self.assertRaises(DocumentMatchNotUniqueError, MongoDocument, self.session, colname, retrieve={'firstname':'Saruman'})
+		self.assertRaises(DocumentMatchNotUniqueError,
+		                  MongoDocument,
+		                  self.session, colname, retrieve={'firstname':'Saruman'})
 
 class NonTransactional_EdgeCases(unittest.TestCase):
 
@@ -185,7 +219,7 @@ class NonTransactional_EdgeCases(unittest.TestCase):
 		self.doc['name'] = 'Saruman'
 		transaction.commit()
 		self.assertFalse(self.doc.session.transactional)
-		self.assertFalse(self.doc.session.transactionInitialized)
+		self.assertFalse(self.doc.session.active)
 
 	def test_deleted_documents_should_be_empty(self):
 		self.doc['name'] = 'Saruman'

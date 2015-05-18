@@ -3,24 +3,28 @@ import transaction
 import hooks
 
 class Session(object):
-	""" Holds database info, and whether the session is to be transactional or not (default yes)
-	A single session object can be shared by multiple participants in a transaction.
+	""" Holds database info, and whether the session is to be
+	transactional or not (default yes). A single session object
+	can be shared by multiple participants in a transaction.
 	"""
 	def __init__(self, dbname, host=None, port=None, transactional=True):
 		self.connection = MongoClient(host, port)
 		self.db = self.connection[dbname]
 		self.transactional = transactional
-		self.transactionInitialized = False
+		self.active = False
 		self.queue = []
-		self.initialize()
+		self.begin()
 
-	def initialize(self):
-		""" On subsequent transactions after the initial one, a session can simply be reinitialized
-		instead of a new instance being created.
+	def begin(self):
+		""" On subsequent transactions after the initial one,
+		a session can simply be begun again instead of a
+		new instance being created.
 		"""
-		if self.transactional and not self.transactionInitialized:
+		if self.transactional and not self.active:
 			txn = transaction.get()
-			txn.addBeforeCommitHook(hooks.mongoListener_prehook, args=(), kws={})
-			txn.addAfterCommitHook(hooks.mongoListener_posthook, args=(), kws={'session':self})
-			self.transactionInitialized = True
+			txn.addBeforeCommitHook(hooks.mongo_listener_prehook,
+			                        args=(), kws={})
+			txn.addAfterCommitHook(hooks.mongo_listener_posthook,
+			                       args=(), kws={'session':self})
+			self.active = True
 

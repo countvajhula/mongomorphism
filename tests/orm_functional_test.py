@@ -29,7 +29,7 @@ class NonTransactional_GoodInput(unittest.TestCase):
 		conn = MongoClient()
 		conn.drop_database(dbname)
 
-	def testValidationSucceedsWhenAllRequiredFieldsPresent(self):
+	def test_validation_should_succeed_when_all_required_fields_present(self):
 		session = Session(dbname, transactional=False)
 		obj = Sample(session)
 		obj['field1'] = 'something'
@@ -44,7 +44,7 @@ class NonTransactional_BadInput(unittest.TestCase):
 		conn = MongoClient()
 		conn.drop_database(dbname)
 
-	def testValidationFailsWhenRequiredFieldMissing(self):
+	def test_validation_should_fail_when_required_field_missing(self):
 		session = Session(dbname, transactional=False)
 		obj = Sample(session)
 		obj['field1'] = 'something'

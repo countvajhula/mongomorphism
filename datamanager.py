@@ -24,20 +24,22 @@ class MongoSavepoint(object):
 		self.dm.uncommitted = self.saved_committed.copy()
 
 class MongoDocument(object):
-	""" A Mongodb data manager. A MongoDocument represents a document in mongo database,
-	and acts like a regular python dict. By default the document will be transaction-aware,
-	providing "ACID-like" functionality on top of mongodb by interfacing with the
-	python 'transaction' package. Changes will be persisted only if the transaction succeeds.
-	If non-transactional, then save() and delete() methods may be used.
+	""" A Mongodb data manager. A MongoDocument represents a document in mongo
+	database, and acts like a regular python dict. By default the document
+	will be transaction-aware, providing "ACID-like" functionality on top of
+	mongodb by interfacing with the python 'transaction' package. Changes will
+	be persisted only if the transaction succeeds. If non-transactional,
+	then save() and delete() methods may be used.
 	"""
 
 	transaction_manager = transaction.manager
 	mongo_data_manager = True # internal: for transaction hook injection
 
 	def __init__(self, session, colname, retrieve=None):
-		""" Note, if using this as a data manager for the python transaction package,
-		by default this will automatically join the current transaction. If you'd like to do
-		it manually, set transactional=False here
+		""" Note, if using this as a data manager for the python transaction
+		package, by default this will automatically join the current
+		transaction. If you'd like to do it manually,
+		set transactional=False here
 		"""
 		try:
 			self.session = session
@@ -51,20 +53,26 @@ class MongoDocument(object):
 			# if provided keys are not sufficient to retrieve unique document
 			# or if no document returned, throw an exception here
 			matchingdocs = self.collection.find(retrieve)
-			if matchingdocs.count() == 0: raise DocumentNotFoundError('Document not found!' + str(retrieve))
-			if matchingdocs.count() > 1: raise DocumentMatchNotUniqueError('Multiple matches for document, should be unique:' + str(retrieve))
+			if matchingdocs.count() == 0:
+				raise DocumentNotFoundError('Document not found!'
+				                            + str(retrieve))
+			if matchingdocs.count() > 1:
+				raise DocumentMatchNotUniqueError(
+				    'Multiple matches for document, should be unique:'
+				    + str(retrieve))
 			committed = matchingdocs.next()
 
 		self.committed = committed
 		self.uncommitted = self.committed.copy()
 		self.queued = {}
 
-		# is _id unique across the entire database? If not, then use a sha hash of this concatenated with db id,
-		# to make sure there are no false positives for duplicated dm's for same doc
+		# is _id unique across the entire database? If not, then use a SHA hash
+		# of this concatenated with db id, to make sure there are no
+		# false positives for duplicated dm's for same doc
 		if self.uncommitted.has_key('_id'):
-			self.docId = str(self.uncommitted['_id'])
+			self.doc_id = str(self.uncommitted['_id'])
 		else:
-			self.docId = None
+			self.doc_id = None
 	
 	#
 	# it's going to act like a dictionary so implement basic dictionary methods
@@ -72,14 +80,19 @@ class MongoDocument(object):
 
 	def __getitem__(self, name):
 		if isinstance(self.uncommitted[name], DBRef):
-			# if referenced doc is part of current transaction return that instance
-			# otherwise create a new MongoDocument instance and return that
+			# if referenced doc is part of current transaction return
+			# that instance otherwise create a new MongoDocument instance
+			# and return that
 			txn = transaction.get()
 			doc = self.session.db.dereference(self.uncommitted[name])
-			livedocs = filter(lambda f: f.has_key('_id') and f['_id'] == doc['_id'], txn._resources)
+			livedocs = filter(lambda f:
+			                  f.has_key('_id') and
+			                  f['_id'] == doc['_id'], txn._resources)
 			if livedocs:
 				return livedocs[0]
-			return MongoDocument(self.session, self.collection.name, retrieve=doc)
+			return MongoDocument(self.session,
+			                     self.collection.name,
+			                     retrieve=doc)
 		else:
 			try:
 				value = jsonpickle.decode(self.uncommitted[name])
@@ -91,17 +104,22 @@ class MongoDocument(object):
 	def __setitem__(self, name, value):
 		if hasattr(value, 'mongo_data_manager'):
 			if value.has_key('_id'):
-				self.uncommitted[name] = DBRef(value.collection.name, value['_id'])
+				self.uncommitted[name] = DBRef(value.collection.name,
+				                               value['_id'])
 			else:
 				txn = transaction.get()
 				if value in txn._resources:
-					# this document is part of the current transaction and doesn't have a mongo _id yet
-					# queue it and trigger adding the reference at the end of the transaction
+					# this document is part of the current transaction and
+					# doesn't have a mongo _id yet queue it and trigger adding
+					# the reference at the end of the transaction
 					self.queued[name] = value
 				else:
-					# this document is not part of the current transaction, so treat it as a regular
-					# python dict and make it an embedded document inside the current doc
-					logger.warn('mongo document does not exist in mongodb and is not part of current transaction - saving as embedded instead of a reference')
+					# this document is not part of the current transaction,
+					# so treat it as a regular python dict and make it an
+					# embedded document inside the current doc
+					logger.warn('mongo document does not exist in mongodb and'
+					            ' is not part of current transaction - saving'
+								' as embedded instead of a reference')
 					self.uncommitted[name] = value.copy()
 		else:
 			try:
@@ -129,7 +147,11 @@ class MongoDocument(object):
 	@mutative_operation
 	def set(self, somedict):
 		""" Set the document to be equal to the provided dict """
-		self.uncommitted = somedict # if somedict = None, this will delete the doc when the transaction is committed. alternatively, delete() can be called which does the same thing.
+
+		self.uncommitted = somedict # if somedict = None, this will delete the
+		                            # doc when the transaction is committed.
+		                            # alternatively, delete() can be called
+		                            # which does the same thing.
 
 	def __repr__(self):
 		return repr(self.uncommitted)
@@ -141,16 +163,19 @@ class MongoDocument(object):
 		return self.uncommitted.has_key(key)
 
 	def _save(self):
-		# commit new doc (replace existing doc) -- can be called manually outside of transactions
+		# commit new doc (replace existing doc) -- can be called
+		# manually, outside of transactions
 		if self.uncommitted == None: # document should be deleted
 			self._delete()
 		else:
 			if self.committed:
-				self.collection.update({'_id':self.committed['_id']}, self.uncommitted)
+				self.collection.update({'_id':self.committed['_id']},
+				                       self.uncommitted)
 			else:
 				self.collection.insert(self.uncommitted)
-		# if there are queued changes that cannot be completed in this transaction
-		# add them to the session queue to be performed after the transaction
+		# if there are queued changes that cannot be completed
+		# in this transaction add them to the session queue
+		# to be performed after the transaction
 		if self.queued:
 			self.session.queue.append(self)
 
@@ -195,7 +220,10 @@ class MongoDocument(object):
 	
 	def tpc_begin(self, transaction):
 		if self.committed:
-			self.collection.update({'_id':self.committed['_id']}, {'$push':{'pendingTransactions':support.ActiveTransaction.transactionId}})
+			self.collection.update({'_id':self.committed['_id']},
+			                       {'$push':
+			                       {'pending_transactions':
+			                       support.ActiveTransaction.transaction_id}})
 
 	def commit(self, transaction):
 		pass
@@ -203,40 +231,61 @@ class MongoDocument(object):
 	def tpc_vote(self, transaction):
 		# check self.committed = current state
 		# or there's a pending txn that's not this one
-		if not self.session.transactionInitialized:
-			raise Exception('MongoDB transactions not initialized correctly! Be sure to create a new session instance or call session.initialize() once at the start of each transaction.')
+		if not self.session.active:
+			raise Exception('MongoDB session not initialized correctly!'
+			                ' Be sure to create a new session instance'
+							' or call session.begin() once at the start'
+							' of each transaction.')
 		if self.uncommitted:
 			# validate new data
 			keytypes = map(lambda f:type(f), self.uncommitted.keys())
-			invalidkeys = filter(lambda f:f != str and f != unicode, keytypes)
+			invalidkeys = filter(lambda f: f != str and f != unicode, keytypes)
 			if invalidkeys:
-				raise Exception('Invalid key: Documents must have only string or unicode keys!')
+				raise Exception('Invalid key: Documents must'
+				                ' have only string or unicode keys!')
 			try:
-				BSON.encode(self.uncommitted) # final check that document is BSON-compatible
+				BSON.encode(self.uncommitted) # final check that document
+				                              # is BSON-compatible
 			except:
 				raise
 
 		if self.committed:
 			if not self.committed.has_key('_id'):
-				raise Exception('Committed document does not have an _id field!') # this should never happen (if it does then we're in trouble - tpc_abort will fail)
-			dbcommitted = self.collection.find_one({'_id':self.committed['_id']})
+				# this should never happen
+				# (if it does then we're in trouble - tpc_abort will fail)
+				raise Exception(
+				    'Committed document does not have an _id field!') 
+			dbcommitted = self.collection.find_one(
+			    {'_id': self.committed['_id']})
 			if not dbcommitted:
-				raise TransientError('Document to be updated does not exist in database!')
-			pendingTransactions = dbcommitted.pop('pendingTransactions')
-			if self.committed.has_key('pendingTransactions'):
-				raise TransientError('Concurrent modification! Transaction aborting...')
-			if len(pendingTransactions) > 1 or pendingTransactions[0] != support.ActiveTransaction.transactionId:
-				raise TransientError('Concurrent modification! Transaction aborting...')
+				raise TransientError(
+				    'Document to be updated does not exist in database!')
+			pending_transactions = dbcommitted.pop('pending_transactions')
+			if self.committed.has_key('pending_transactions'):
+				raise TransientError(
+				    'Concurrent modification! Transaction aborting...')
+			if (len(pending_transactions) > 1 or
+			        pending_transactions[0] !=
+			        support.ActiveTransaction.transaction_id):
+				raise TransientError(
+				    'Concurrent modification! Transaction aborting...')
 			if dbcommitted != self.committed:
-				raise TransientError('Concurrent modification! Transaction aborting...')
+				raise TransientError(
+				    'Concurrent modification! Transaction aborting...')
 
 	def tpc_abort(self, transaction):
 		self.uncommitted = self.committed.copy()
 		if self.committed:
-			self.collection.update({'_id':self.committed['_id']}, {'$pull':{'pendingTransactions':support.ActiveTransaction.transactionId}})
-			dbcommitted = self.collection.find_one({'_id':self.committed['_id']})
-			if dbcommitted.has_key('pendingTransactions') and not dbcommitted['pendingTransactions']:
-				self.collection.update({'_id':self.committed['_id']}, {'$unset':{'pendingTransactions':1}})
+			self.collection.update(
+			    {'_id': self.committed['_id']},
+			    {'$pull': {'pending_transactions':
+			    support.ActiveTransaction.transaction_id}})
+			dbcommitted = self.collection.find_one(
+			    {'_id':self.committed['_id']})
+			if (dbcommitted.has_key('pending_transactions') and
+			        not dbcommitted['pending_transactions']):
+				self.collection.update({'_id':self.committed['_id']},
+				                       {'$unset':{'pending_transactions':1}})
 	
 	def tpc_finish(self, transaction):
 		self._save()
@@ -245,7 +294,8 @@ class MongoDocument(object):
 		return MongoSavepoint(self)
 	
 	def sortKey(self):
-		return 'zzmongodm' + str(id(self)) # prioritize last since it's not "true" transactional
+		# prioritize (alphabetically) last since it's not "true" transactional
+		return 'zzmongodm' + str(id(self))
 
 if __name__ == '__main__':
 	from config import Session
